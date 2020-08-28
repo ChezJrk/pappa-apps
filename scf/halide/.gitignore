@@ -1,13 +1,7 @@
 callgrind.out.*
-*.o
 scf.x
 *_gen
-*.a
-twoel.a
-twoel.h
-twoel.schedule.h
-*.halide_generated.cpp
-*.registration.cpp
+twoel.*
 *.stmt
 *.trace
 *.png

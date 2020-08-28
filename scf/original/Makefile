@@ -1,6 +1,6 @@
 ## Makefile for SCF-C
 
-CC  = clang
+CC  = clang-10
 CFLAGS = -O3 -mtune=native -march=native
 
 OBJFILES = input.o integ.o output.o timer.o scf.o diagonalize.o

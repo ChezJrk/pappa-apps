@@ -84,13 +84,14 @@ int main(int argc, char **argv) {
 
 // compute the two particle contributions to the fock matrix and get the total energy;
     {
-        Halide::Runtime::Buffer<double> etwo_buffer = Halide::Runtime::Buffer<double>::make_scalar();
+        Halide::Runtime::Buffer<double, 1> etwo_buffer(1);
         extern double rdelta, delta, delo2; // integ.c
         extern Halide::Runtime::Buffer<double> fm; // integ.c
         int error = twoel(delo2, delta, rdelta, expnt_buf, rnorm_buf, x_buf, y_buf, z_buf, fm_buf, *g_fock_buf, g_dens_buf, etwo_buffer, *g_fock_out_buf);
         assert(!error);
         swap_g_fock();
 #ifdef TRACING
+        printf("twoel took %f seconds\n", timer());
         exit(0);
 #endif /* TRACING */
         etwo = etwo_buffer(0);
