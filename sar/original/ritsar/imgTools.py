@@ -9,6 +9,7 @@ from . import signal as sig
 from . import phsTools
 from scipy.interpolate import interp1d
 import multiprocessing as mp
+import time
 
 def phs_inscribe(img):
 ##############################################################################
@@ -317,9 +318,15 @@ def backprojection(phs, platform, img_plane, taylor = 20, upsample = 6, prnt = T
 
     #Perform backprojection for each pulse
     img = np.zeros(nu*nv)+0j
+    tic = time.perf_counter()
     for i in range(npulses):
         if prnt:
-            print("Calculating backprojection for pulse %i" %i)
+            toc = time.perf_counter()
+            if i == 0:
+                estimated_time = 0
+            else:
+                estimated_time = (toc-tic) / i * npulses
+            print("Calculating backprojection for pulse %i of %i: Estimated runtime = %0.4f seconds" %(i, npulses, estimated_time))
         r0 = np.array([pos[i]]).T
         dr_i = norm(r0)-norm(r-r0, axis = 0)
 
@@ -334,6 +341,121 @@ def backprojection(phs, platform, img_plane, taylor = 20, upsample = 6, prnt = T
     img = img*np.exp(1j*k_c*dr_i)
     img = np.reshape(img, [nv, nu])[::-1,:]
     return(img)
+
+def backprojection_mpi(phs, platform, img_plane, taylor = 20, upsample = 6, prnt = True):
+##############################################################################
+#                                                                            #
+#  This is the distributed Backprojection algorithm.  The phase history data #
+#  as well as platform and image plane dictionaries are taken as inputs.     #
+#  The (x,y,z) locations of each pixel are required, as well as the size of  #
+#  the final image (interpreted as [size(v) x size(u)]).  The final image is #
+#  split across MPI processes, and assembled at the end.                     #
+#                                                                            #
+#  The fully assembled image is returned on rank 0; other ranks return None. #
+#                                                                            #
+##############################################################################
+    from mpi4py import MPI
+
+    #Retrieve relevent parameters
+    nsamples    =   platform['nsamples']
+    npulses     =   platform['npulses']
+    k_r         =   platform['k_r']
+    pos         =   platform['pos']
+    delta_r     =   platform['delta_r']
+    u           =   img_plane['u']
+    v           =   img_plane['v']
+    r           =   img_plane['pixel_locs']
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    nranks = comm.Get_size()
+
+    #Derive parameters
+    nu = u.size
+    nv = v.size
+    k_c = k_r[nsamples//2]
+    nunv = nu * nv
+    nunv_per_node = nunv // nranks
+    if nunv_per_node * nranks < nunv:
+        # the workload does not divide evenly
+        # round up the division, so the last node gets less work than the rest
+        nunv_per_node += 1
+    nunv_begin = nunv_per_node * rank
+    nunv_end = nunv_per_node * (rank+1)
+    if nunv_begin > nunv:
+        nunv_begin = nunv - 1
+    if nunv_end > nunv:
+        nunv_end = nunv
+    nunv_count = nunv_end - nunv_begin
+
+    #Create window
+    win_x = sig.taylor(nsamples,taylor)
+    win_x = np.tile(win_x, [npulses,1])
+
+    win_y = sig.taylor(npulses,taylor)
+    win_y = np.array([win_y]).T
+    win_y = np.tile(win_y, [1,nsamples])
+
+    win = win_x*win_y
+
+    #Filter phase history
+    filt = np.abs(k_r)
+    phs_filt = phs*filt*win
+
+    #Zero pad phase history
+    N_fft = 2**(int(np.log2(nsamples*upsample))+1)
+    phs_pad = sig.pad(phs_filt, [npulses,N_fft])
+
+    #Filter phase history and perform FT w.r.t t
+    Q = sig.ft(phs_pad)
+    dr = np.linspace(-nsamples*delta_r//2, nsamples*delta_r//2, N_fft)
+
+    # Each process computs its own set of pixels
+    #print("rank", rank, "computes", nunv_count, "pixels of output")
+    img = np.zeros(nunv_count)+0j
+    # Take the corresponding subset of r
+    r = r[:,nunv_begin:nunv_end]
+
+    #Perform backprojection for each pulse
+    tic = time.perf_counter()
+    for i in range(npulses):
+        if prnt and rank == 0:
+            toc = time.perf_counter()
+            if i == 0:
+                estimated_time = 0
+            else:
+                estimated_time = (toc-tic) / i * npulses
+            print("Calculating backprojection for pulse %i of %i: Estimated runtime = %0.4f seconds" %(i, npulses, estimated_time))
+        r0 = np.array([pos[i]]).T
+        dr_i = norm(r0)-norm(r-r0, axis = 0)
+
+        Q_real = np.interp(dr_i, dr, Q[i].real)
+        Q_imag = np.interp(dr_i, dr, Q[i].imag)
+
+        Q_hat = Q_real+1j*Q_imag
+        img += Q_hat*np.exp(-1j*k_c*dr_i)
+
+    r0 = np.array([pos[npulses//2]]).T
+    dr_i = norm(r0)-norm(r-r0, axis = 0)
+    img = img*np.exp(1j*k_c*dr_i)
+
+    # Re-assemble the image on node 0
+    full_img = np.zeros(nunv_per_node*nranks)+0j
+    if nunv_per_node != nunv_count:
+        # MPI.Comm.Resize needs every process's input buffer to be the same size
+        # But if the work was split unevenly, the last process has a smaller
+        # buffer.  Pad up the local buffer for the gather.
+        img.resize(nunv_per_node)
+    comm.Gather(img, full_img, 0)
+
+    # rank 0 returns the assembled image
+    if rank == 0:
+        if nunv_per_node*nranks != nunv:
+            # strip off padding we added above
+            full_img.resize(nunv)
+        img = np.reshape(full_img, [nv, nu])[::-1,:]
+        return(img)
+    else:
+        return None
 
 def DSBP(phs, platform, img_plane, center=None, size=None, derate = 1.05, taylor = 20, n = 32, beta = 4, cutoff = 'nyq', factor_max = 6, factor_min = 0):
 ##############################################################################

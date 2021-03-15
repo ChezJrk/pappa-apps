@@ -125,6 +125,34 @@ def AFRL(directory, pol, start_az, n_az=3):
 
     return(phs, platform)
 
+def Halide_SAR(directory, subdir, start_az, n_az = 3):
+    '''Read .npy dumps similar to how the Halide SAR app does.'''
+    # The Halide SAR app has some data dumps, and a tool to expand the
+    # data to arbitrary sizes for scalability testing.
+    # See https://github.com/ISI-apex/halide-sar-app/tree/master/data
+
+    # start_az and n_az are ignored for now
+    path = os.path.join(directory, subdir)
+    phs = np.load(os.path.join(path, "phs.npy"))
+    print("phs.shape:", phs.shape)
+    platform = {}
+    for thing in ["R_c", "freq", "k_r", "k_y", "n_hat", "pos", "t", "B_IF", "chirprate", "delta_r", "f_0", "n_hat", "npulses", "nsamples"]:
+        fn = os.path.join(path, thing+".npy")
+        if os.path.exists(fn):
+            data = np.load(fn)
+            platform[thing] = data
+    for thing in ["B_IF", "chirprate", "delta_r", "f_0", "n_hat", "npulses", "nsamples"]:
+        # extract scalar values from 0-dimensional arrays
+        if thing not in platform:
+            continue
+        platform[thing] = platform[thing].tolist()
+        if type(platform[thing]) == list:
+            platform[thing] = platform[thing][0]
+
+
+    return phs, platform
+
+
 def Sandia(directory):
 ##############################################################################
 #                                                                            #
