@@ -342,6 +342,205 @@ def backprojection(phs, platform, img_plane, taylor = 20, upsample = 6, prnt = T
     img = np.reshape(img, [nv, nu])[::-1,:]
     return(img)
 
+def backprojection_cuda(phs, platform, img_plane, taylor = 20, upsample = 6, prnt = True):
+##############################################################################
+#                                                                            #
+#  This is the Backprojection algorithm.  The phase history data as well as  #
+#  platform and image plane dictionaries are taken as inputs.  The (x,y,z)   #
+#  locations of each pixel are required, as well as the size of the final    #
+#  image (interpreted as [size(v) x size(u)]).  Parts of the inner loop are  #
+#  offloaded to a GPU using CUDA.                                            #
+#                                                                            #
+##############################################################################
+
+    import pycuda.driver as driver
+    import pycuda.autoinit
+    from pycuda.compiler import SourceModule
+    # original numpy code:
+        # # i = pulse number
+        # r0 = np.array([pos[i]]).T
+        # dr_i = norm(r0)-norm(r-r0, axis = 0)
+
+        # Q_real = np.interp(dr_i, dr, Q[i].real)
+        # Q_imag = np.interp(dr_i, dr, Q[i].imag)
+
+        # Q_hat = Q_real+1j*Q_imag
+        # img += Q_hat*np.exp(-1j*k_c*dr_i)
+
+    mod = SourceModule('''
+#include <stdint.h>
+#include <cuComplex.h>
+__device__ __forceinline__ cuDoubleComplex cexp(cuDoubleComplex z) {
+    // adapted from https://forums.developer.nvidia.com/t/complex-number-exponential-function/24696
+    cuDoubleComplex res;
+    double t = expf(z.x);
+    sincos(z.y, &res.y, &res.x);
+    res.x *= t;
+    res.y *= t;
+    return res;
+}
+
+__device__ double interp(double x, double *xp, double *fp, int lookup_len) {
+    /* xp and fp are vectors of the same length */
+    /* binary search of x in xp */
+    int low = 0;
+    int high = lookup_len - 1;
+    while(low <= high) {
+        int mid = (low + high) / 2;
+        double mid_value = xp[mid];
+        if(mid_value >= x) {
+            high = mid - 1;
+        } else
+        if(mid_value < x) {
+            low = mid + 1;
+        } else {
+            break;
+        }
+        if(high < 0)
+            break;
+        if(low >= lookup_len)
+            break;
+    }
+
+    /* prevent overflow/underflow */
+    if(low < 0)
+        low = 0;
+    if(low >= lookup_len)
+        low = lookup_len - 1;
+    /* don't bother interpolating the first/last values */
+    if(low == 0)
+        return fp[low];
+    if(low == lookup_len - 1)
+        return fp[low];
+
+    /* x will be between two elements of xp: xpl (low) and xph (high) */
+    double xpl = xp[low];
+    double xph = xp[low+1];
+    double xoff = (x - xpl) / (xph - xpl);
+
+    /* look up the corresponding low/high values in fp, fpl and fph */
+    double fpl = fp[low];
+    double fph = fp[low+1];
+
+    /* interpolate between fpl and fph */
+    double f = fpl + (fph - fpl) * xoff;
+    return f;
+}
+
+#define NUM_DIMENSIONS 3
+__global__ void add_pulse_to_img(cuDoubleComplex *img, float *r0, double *r, double *dr, double *Q_pulse_real, double *Q_pulse_imag, float k_c, int searchlen) {
+    const uint64_t i = threadIdx.x + blockIdx.x * blockDim.x;
+    int num_pixels = blockDim.x * gridDim.x;
+
+    // dr_i = norm(r0)-norm(r-r0, axis = 0)
+    double r_r0[NUM_DIMENSIONS];
+    int dim;
+    //                      r-r0
+    for(dim = 0; dim < NUM_DIMENSIONS; dim++) {
+        double rp = r[num_pixels*dim + i];
+        r_r0[dim] = rp - r0[dim];
+    }
+    //                 norm(r-r0, axis = 0)
+    double norm_r_r0 = norm(3, r_r0);
+    //        norm(r0)
+    double norm_r0 = normf(3, r0);
+    //        norm    -norm
+    double dr_i = norm_r0 - norm_r_r0;
+
+    // # Q_real = np.interp(dr_i, dr, Q[i].real)
+    double Q_real = interp(dr_i, dr, Q_pulse_real, searchlen);
+    // # Q_imag = np.interp(dr_i, dr, Q[i].imag)
+    double Q_imag = interp(dr_i, dr, Q_pulse_imag, searchlen);
+
+    // # Q_hat = Q_real+1j*Q_imag
+    cuDoubleComplex Q_hat = make_cuDoubleComplex(Q_real, Q_imag);
+
+    // # img += Q_hat*np.exp(-1j*k_c*dr_i)
+    // #    -1j*k_c*dr_i)
+    cuDoubleComplex c = make_cuDoubleComplex(0, dr_i * k_c * -1);
+    // #    np.exp(
+    cuDoubleComplex expval = cexp(c);
+    // #    Q_hat*
+    cuDoubleComplex result = cuCmul(Q_hat, expval);
+    // #    img +=
+    img[i] = cuCadd(img[i], result);
+}
+    ''')
+
+    add_pulse_to_img = mod.get_function("add_pulse_to_img")
+
+    #Retrieve relevent parameters
+    nsamples    =   platform['nsamples']
+    npulses     =   platform['npulses']
+    k_r         =   platform['k_r']
+    pos         =   platform['pos']
+    delta_r     =   platform['delta_r']
+    u           =   img_plane['u']
+    v           =   img_plane['v']
+    r           =   img_plane['pixel_locs']
+
+    #Derive parameters
+    nu = u.size
+    nv = v.size
+    k_c = k_r[nsamples//2]
+
+    #Create window
+    win_x = sig.taylor(nsamples,taylor)
+    win_x = np.tile(win_x, [npulses,1])
+
+    win_y = sig.taylor(npulses,taylor)
+    win_y = np.array([win_y]).T
+    win_y = np.tile(win_y, [1,nsamples])
+
+    win = win_x*win_y
+
+    #Filter phase history
+    filt = np.abs(k_r)
+    phs_filt = phs*filt*win
+
+    #Zero pad phase history
+    N_fft = 2**(int(np.log2(nsamples*upsample))+1)
+    phs_pad = sig.pad(phs_filt, [npulses,N_fft])
+
+    #Filter phase history and perform FT w.r.t t
+    Q = sig.ft(phs_pad)
+    dr = np.linspace(-nsamples*delta_r//2, nsamples*delta_r//2, N_fft)
+
+    #Perform backprojection for each pulse
+    #img = np.zeros(nu*nv)+0j
+    img = driver.mem_alloc(nu*nv*64*2) # vector of nu*nv complex doubles
+    driver.memset_d8(img, 0, nu*nv*64*2)
+    blocksize = (1024,1,1)
+    gridsize = (int(nu*nv / 1024),1,1)
+    tic = time.perf_counter()
+    for i in range(npulses):
+        if prnt:
+            toc = time.perf_counter()
+            if i == 0:
+                estimated_time = 0
+            else:
+                estimated_time = (toc-tic) / i * npulses
+            print("Calculating backprojection for pulse %i of %i: Estimated runtime = %0.4f seconds" %(i, npulses, estimated_time))
+
+        Q_i_real = Q[i].real
+        Q_i_imag = Q[i].imag
+        # consolidate real/imag (make them contiguous in memory)
+        Q_i_real = np.array(Q_i_real)
+        Q_i_imag = np.array(Q_i_imag)
+
+        r0 = np.float32(pos[i])
+
+        searchlen = Q_i_real.shape[0]
+
+        add_pulse_to_img(img, driver.In(r0), driver.In(r), driver.In(dr), driver.In(Q_i_real), driver.In(Q_i_imag), np.float32(k_c), np.int32(searchlen), block=blocksize, grid=gridsize)
+
+    img = driver.from_device(img, (nu*nv,), np.cdouble)
+    r0 = np.array([pos[npulses//2]]).T
+    dr_i = norm(r0)-norm(r-r0, axis = 0)
+    img = img*np.exp(1j*k_c*dr_i)
+    img = np.reshape(img, [nv, nu])[::-1,:]
+    return(img)
+
 def backprojection_mpi(phs, platform, img_plane, taylor = 20, upsample = 6, prnt = True):
 ##############################################################################
 #                                                                            #

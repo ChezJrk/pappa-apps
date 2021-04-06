@@ -1,6 +1,6 @@
 ##############################################################################
 #                                                                            #
-#  This is a demonstration of the ritsar toolset using Sandia data.          #
+#  This is a demonstration of the ritsar toolset using AFRL Gotcha data.     #
 #  Algorithms can be switched in and out by commenting/uncommenting          #
 #  the lines of code below.                                                  #
 #                                                                            #
@@ -22,32 +22,28 @@ import matplotlib.pylab as plt
 
 #Include SARIT toolset
 from ritsar import phsRead
-from ritsar import phsTools
 from ritsar import imgTools
 
-#Define directory containing *.au2 and *.phs files
-directory = './data/Sandia/'
+#Define top level directory containing *.mat file
+#and choose polarization and starting azimuth
+pol = 'HH'
+directory = './data/AFRL/pass1'
+start_az = 1
 
 #Import phase history and create platform dictionary
-[phs, platform] = phsRead.Sandia(directory)
+[phs, platform] = phsRead.AFRL(directory, pol, start_az, n_az = 3)
 
-#Correct for residual video phase
-phs_corr = phsTools.RVP_correct(phs, platform)
+#Create image plane dictionary
+img_plane = imgTools.img_plane_dict(platform, res_factor = 1.4, upsample = True, aspect = 1.0)
 
-#Import image plane dictionary from './parameters/img_plane'
-img_plane = imgTools.img_plane_dict(platform,
-                           res_factor = 1.0, n_hat = platform['n_hat'])
-
-img_bp   = imgTools.backprojection(phs, platform, img_plane, taylor = 30)
-
-#Apply polar format algorithm to phase history data
-#(Other options not available since platform position is unknown)
-#img_pf = imgTools.polar_format(phs_corr, platform, img_plane, taylor = 30)
+#Apply algorithm of choice to phase history data
+img_bp = imgTools.backprojection_cuda(phs, platform, img_plane, taylor = 20, upsample = 6)
+#img_pf = imgTools.polar_format(phs, platform, img_plane, taylor = 20)
 
 #Output image
-imgTools.imshow(img_bp, [-45,0])
-plt.title('Sandia backprojection (CPU)')
-outfn = "BP_Sandia_demo.png"
+imgTools.imshow(img_bp, dB_scale = [-30,0])
+plt.title('AFRL Backprojection (CUDA)')
+outfn = "CUDA_AFRL_demo.png"
 if os.getenv("OUTFILE") is not None:
     outfn = os.getenv("OUTFILE")
 plt.savefig(outfn)

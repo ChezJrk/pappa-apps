@@ -39,7 +39,7 @@ img_bp = imgTools.backprojection(phs, platform, img_plane, taylor = 20, upsample
 
 #Output image
 imgTools.imshow(img_bp, dB_scale = [-30,0])
-plt.title('Backprojection')
+plt.title('AFRL Backprojection (CPU)')
 if batch:
     plt.savefig("AFRL_demo.png")
 else:

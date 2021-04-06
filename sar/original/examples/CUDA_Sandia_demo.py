@@ -38,7 +38,7 @@ phs_corr = phsTools.RVP_correct(phs, platform)
 img_plane = imgTools.img_plane_dict(platform,
                            res_factor = 1.0, n_hat = platform['n_hat'])
 
-img_bp   = imgTools.backprojection(phs, platform, img_plane, taylor = 30)
+img_bp   = imgTools.backprojection_cuda(phs, platform, img_plane, taylor = 30)
 
 #Apply polar format algorithm to phase history data
 #(Other options not available since platform position is unknown)
@@ -46,8 +46,8 @@ img_bp   = imgTools.backprojection(phs, platform, img_plane, taylor = 30)
 
 #Output image
 imgTools.imshow(img_bp, [-45,0])
-plt.title('Sandia backprojection (CPU)')
-outfn = "BP_Sandia_demo.png"
+plt.title('Sandia backprojection (CUDA)')
+outfn = "CUDA_Sandia_demo.png"
 if os.getenv("OUTFILE") is not None:
     outfn = os.getenv("OUTFILE")
 plt.savefig(outfn)
