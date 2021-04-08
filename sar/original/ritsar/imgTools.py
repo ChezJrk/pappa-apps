@@ -465,7 +465,7 @@ __global__ void add_pulse_to_img(cuDoubleComplex *img, float *r0, double *r, dou
     // #    img +=
     img[i] = cuCadd(img[i], result);
 }
-    ''')
+    ''', options=["--compiler-bindir", "/usr/bin"])
 
     add_pulse_to_img = mod.get_function("add_pulse_to_img")
 
