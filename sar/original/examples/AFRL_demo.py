@@ -29,6 +29,7 @@ start_az = 1
 
 #Import phase history and create platform dictionary
 [phs, platform] = phsRead.AFRL(directory, pol, start_az, n_az = 3)
+print(phs.shape)
 
 #Create image plane dictionary
 img_plane = imgTools.img_plane_dict(platform, res_factor = 1.4, upsample = True, aspect = 1.0)

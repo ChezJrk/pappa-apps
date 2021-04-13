@@ -134,7 +134,6 @@ def Halide_SAR(directory, subdir, start_az, n_az = 3):
     # start_az and n_az are ignored for now
     path = os.path.join(directory, subdir)
     phs = np.load(os.path.join(path, "phs.npy"))
-    print("phs.shape:", phs.shape)
     platform = {}
     for thing in ["R_c", "freq", "k_r", "k_y", "n_hat", "pos", "t", "B_IF", "chirprate", "delta_r", "f_0", "n_hat", "npulses", "nsamples"]:
         fn = os.path.join(path, thing+".npy")
