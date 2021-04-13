@@ -508,8 +508,8 @@ __global__ void add_pulse_to_img(cuDoubleComplex *img, float *r0, double *r, dou
 
     #Perform backprojection for each pulse
     #img = np.zeros(nu*nv)+0j
-    img = driver.mem_alloc(nu*nv*64*2) # vector of nu*nv complex doubles
-    driver.memset_d8(img, 0, nu*nv*64*2)
+    img = driver.mem_alloc(nu*nv*8*2) # vector of nu*nv complex doubles
+    driver.memset_d8(img, 0, nu*nv*8*2)
     blocksize = (1024,1,1)
     gridsize = (int(nu*nv / 1024),1,1)
     tic = time.perf_counter()
