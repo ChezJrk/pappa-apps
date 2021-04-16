@@ -30,6 +30,7 @@ use_mpi = False
 use_cuda = False
 mpi_barriers = False
 main_or_only_node = True
+res_factor = None
 
 # directory containing *.npy files
 dataset = './data/AFRL_P1024_S1024'
@@ -44,6 +45,7 @@ opts, _ = getopt.getopt(sys.argv[1:], "", [
     "help",
     "dataset=",
     "output=",
+    "res_factor=",
     "cuda",
     "mpi",
     "barrier",
@@ -63,6 +65,8 @@ for opt, value in opts:
         outfn = value
     if opt == '--dataset':
         dataset = value
+    if opt == '--res_factor':
+        res_factor = float(value)
 
 if use_mpi:
     from mpi4py import MPI
@@ -79,14 +83,13 @@ if use_cuda:
     if main_or_only_node:
         print("Using CUDA")
 
-start_az = 1
-
 #Import phase history and create platform dictionary
-[phs, platform] = phsRead.Halide_SAR(dataset, '.', start_az, n_az = 3)
+[phs, platform] = phsRead.Halide_SAR(dataset)
 dataset_size = phs.shape[0]
 dataset_k = str(int(dataset_size/1024)) + "K"
-# original AFRL phs array is 352 pulses x 424 samples
-res_factor = 512.0 / dataset_size
+if res_factor is None:
+    # original AFRL phs array is 352 pulses x 424 samples
+    res_factor = 512.0 / dataset_size
 
 if main_or_only_node:
     print("AFRL {} dataset".format(dataset_size))

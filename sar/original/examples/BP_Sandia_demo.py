@@ -31,9 +31,10 @@ use_mpi = False
 use_cuda = False
 mpi_barriers = False
 main_or_only_node = True
+res_factor = None
 
-# directory containing *.au2 and *.phs files
-dataset = './data/Sandia'
+# directory containing *.npy files
+dataset = './data/Sandia_P2048_S2048'
 # path of png file to generate
 outfn = None
 if os.getenv("DATAPATH") is not None:
@@ -45,6 +46,7 @@ opts, _ = getopt.getopt(sys.argv[1:], "", [
     "help",
     "dataset=",
     "output=",
+    "res_factor=",
     "cuda",
     "mpi",
     "barrier",
@@ -64,6 +66,8 @@ for opt, value in opts:
         outfn = value
     if opt == '--dataset':
         dataset = value
+    if opt == '--res_factor':
+        res_factor = float(value)
 
 if use_mpi:
     from mpi4py import MPI
@@ -81,14 +85,18 @@ if use_cuda:
         print("Using CUDA")
 
 #Import phase history and create platform dictionary
-[phs, platform] = phsRead.Sandia(dataset + "/")
+[phs, platform] = phsRead.Halide_SAR(dataset)
+dataset_size = phs.shape[0]
+dataset_k = str(int(dataset_size/1024)) + "K"
+if res_factor is None:
+    # original Sandia phs array is 1999 pulses x 1800 samples
+    res_factor = 2048.0 / dataset_size
 
-#Correct for residual video phase
-phs_corr = phsTools.RVP_correct(phs, platform)
+if main_or_only_node:
+    print("Sandia {} dataset".format(dataset_size))
 
 #Import image plane dictionary from './parameters/img_plane'
-img_plane = imgTools.img_plane_dict(platform,
-                           res_factor = 1.0, n_hat = platform['n_hat'])
+img_plane = imgTools.img_plane_dict(platform, res_factor=res_factor, n_hat=platform['n_hat'])
 
 before = time()
 img_bp   = imgTools.backprojection(phs, platform, img_plane, taylor = 30, prnt=main_or_only_node, use_mpi=use_mpi, use_cuda=use_cuda, mpi_barriers=mpi_barriers)
@@ -99,7 +107,7 @@ if main_or_only_node:
     #Output image
     imgTools.imshow(img_bp, [-45,0])
     if outfn is None:
-        outfn = "BP_Sandia_demo"
+        outfn = "BP_Sandia{}_demo".format(dataset_k)
         if use_mpi:
             outfn += "_MPI_" + str(count)
             if mpi_barriers:

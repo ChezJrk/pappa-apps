@@ -125,14 +125,12 @@ def AFRL(directory, pol, start_az, n_az=3):
 
     return(phs, platform)
 
-def Halide_SAR(directory, subdir, start_az, n_az = 3):
+def Halide_SAR(path):
     '''Read .npy dumps similar to how the Halide SAR app does.'''
     # The Halide SAR app has some data dumps, and a tool to expand the
     # data to arbitrary sizes for scalability testing.
     # See https://github.com/ISI-apex/halide-sar-app/tree/master/data
 
-    # start_az and n_az are ignored for now
-    path = os.path.join(directory, subdir)
     phs = np.load(os.path.join(path, "phs.npy"))
     platform = {}
     for thing in ["R_c", "freq", "k_r", "k_y", "n_hat", "pos", "t", "B_IF", "chirprate", "delta_r", "f_0", "n_hat", "npulses", "nsamples"]:
@@ -140,7 +138,7 @@ def Halide_SAR(directory, subdir, start_az, n_az = 3):
         if os.path.exists(fn):
             data = np.load(fn)
             platform[thing] = data
-    for thing in ["B_IF", "chirprate", "delta_r", "f_0", "n_hat", "npulses", "nsamples"]:
+    for thing in ["B_IF", "chirprate", "delta_r", "f_0", "npulses", "nsamples"]:
         # extract scalar values from 0-dimensional arrays
         if thing not in platform:
             continue
