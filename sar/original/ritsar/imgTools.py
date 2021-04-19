@@ -431,7 +431,7 @@ __global__ void add_pulse_to_img(cuDoubleComplex *img, float *r0, double *r, dou
     // #    img +=
     img[i] = cuCadd(img[i], result);
 }
-        ''', options=["--compiler-bindir", "/usr/bin"])
+        ''', cache_dir=False, options=["--compiler-bindir", "/usr/bin"])
 
         function = mod.get_function("add_pulse_to_img")
         blocksize = (1024,1,1)
