@@ -125,7 +125,7 @@ def AFRL(directory, pol, start_az, n_az=3):
 
     return(phs, platform)
 
-def Halide_SAR(path):
+def Halide_SAR(path, downcast=True):
     '''Read .npy dumps similar to how the Halide SAR app does.'''
     # The Halide SAR app has some data dumps, and a tool to expand the
     # data to arbitrary sizes for scalability testing.
@@ -146,6 +146,16 @@ def Halide_SAR(path):
         if type(platform[thing]) == list:
             platform[thing] = platform[thing][0]
 
+    if downcast:
+        if type(platform["B_IF"]) == np.float64:
+            print('Downcasting B_IF from float64 to float32')
+            platform["B_IF"] = np.float32(platform["B_IF"])
+        if type(platform["k_r"][0]) == np.float64:
+            print('Downcasting k_r from float64 to float32')
+            platform["k_r"] = platform["k_r"].astype(np.float32)
+        if type(phs[0][0]) == np.complex128:
+            print('Downcasting phs from complex128 to complex64')
+            phs = phs.astype(np.complex64)
 
     return phs, platform
 
