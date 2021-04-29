@@ -147,10 +147,10 @@ def Halide_SAR(path, downcast=True):
             platform[thing] = platform[thing][0]
 
     if downcast:
-        if type(platform["B_IF"]) == np.float64:
+        if "B_IF" in platform and type(platform["B_IF"]) == np.float64:
             print('Downcasting B_IF from float64 to float32')
             platform["B_IF"] = np.float32(platform["B_IF"])
-        if type(platform["k_r"][0]) == np.float64:
+        if "k_r" in platform and type(platform["k_r"][0]) == np.float64:
             print('Downcasting k_r from float64 to float32')
             platform["k_r"] = platform["k_r"].astype(np.float32)
         if type(phs[0][0]) == np.complex128:
